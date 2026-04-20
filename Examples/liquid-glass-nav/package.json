@@ -1,0 +1,17 @@
+{
+  "name": "html-in-canvas-liquid-glass-nav",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Liquid-glass navigation bar demo for HTML-in-Canvas (WebGPU).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vite": "^6.1.1",
+    "@webgpu/types": "^0.1.66"
+  }
+}

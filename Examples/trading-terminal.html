@@ -1,0 +1,498 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Trading terminal — HTML-in-Canvas demo</title>
+
+<!--
+  Demo: a Bloomberg-terminal-style dense HTML table with live prices,
+  rendered through a subtle CRT/bloom/scanline shader post-process.
+  The table rows are fully focusable. Headers are sortable via Enter/Space.
+  Screen readers announce every cell correctly because the DOM is real.
+
+  Requires Chromium Canary + chrome://flags/#canvas-draw-element.
+
+  Pipeline:
+    1. layoutsubtree canvas contains the real <table>.
+    2. onpaint: drawElementImage(terminal) into an offscreen 2D canvas.
+    3. Upload offscreen canvas as a WebGL texture into the display canvas.
+    4. WebGL shader applies scanlines + chromatic aberration + bloom.
+-->
+
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    background: #050608;
+    color: #ade8c2;
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+
+  .frame {
+    position: relative;
+    padding: 14px;
+    background: #080a0d;
+    border: 1px solid rgba(173, 232, 194, 0.15);
+    border-radius: 8px;
+    box-shadow:
+      0 0 0 1px rgba(173, 232, 194, 0.05),
+      0 20px 60px -10px rgba(60, 180, 100, 0.2),
+      inset 0 0 40px rgba(0, 0, 0, 0.6);
+  }
+  .frame::before {
+    content: '';
+    position: absolute;
+    top: 4px; left: 4px; right: 4px; bottom: 4px;
+    pointer-events: none;
+    border-radius: 6px;
+    box-shadow: inset 0 0 80px rgba(20, 60, 30, 0.3);
+  }
+  canvas#display {
+    display: block;
+    width: 880px;
+    height: 560px;
+    background: #030405;
+    border-radius: 4px;
+  }
+
+  /* The live terminal DOM lives inside the canvas. */
+  .terminal {
+    width: 880px;
+    height: 560px;
+    padding: 14px 18px;
+    box-sizing: border-box;
+    background: #050708;
+    color: #ade8c2;
+    font: 13px/1.45 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .terminal .hud {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11px;
+    color: #7fc7a0;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .terminal h1 {
+    margin: 0;
+    font-size: 14px;
+    color: #fff;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+  }
+  .terminal h1::before { content: '▌ '; color: #5ee8b0; }
+  .terminal .now { font-variant-numeric: tabular-nums; }
+
+  .terminal .controls {
+    display: flex; gap: 8px;
+    font-size: 11px;
+  }
+  .terminal .controls button {
+    background: transparent;
+    border: 1px solid rgba(173, 232, 194, 0.25);
+    color: inherit;
+    font: inherit;
+    padding: 3px 9px;
+    border-radius: 3px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+  }
+  .terminal .controls button[aria-pressed="true"] {
+    background: rgba(94, 232, 176, 0.12);
+    border-color: #5ee8b0;
+    color: #fff;
+  }
+
+  .terminal table {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+  .terminal th, .terminal td {
+    padding: 3px 10px;
+    text-align: right;
+    border-bottom: 1px solid rgba(173, 232, 194, 0.05);
+  }
+  .terminal th:first-child, .terminal td:first-child { text-align: left; }
+  .terminal th {
+    font-size: 11px;
+    color: #7fc7a0;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+  }
+  .terminal th[aria-sort="ascending"]::after { content: ' ▲'; color: #5ee8b0; }
+  .terminal th[aria-sort="descending"]::after { content: ' ▼'; color: #5ee8b0; }
+  .terminal tbody tr {
+    outline: none;
+  }
+  .terminal tbody tr:focus {
+    background: rgba(94, 232, 176, 0.15);
+    box-shadow: inset 3px 0 0 #5ee8b0;
+  }
+  .terminal tbody tr:hover {
+    background: rgba(94, 232, 176, 0.07);
+  }
+
+  .terminal .t { color: #fff; font-weight: 600; }
+  .terminal .up { color: #5ee8b0; }
+  .terminal .dn { color: #ff7a7a; }
+  .terminal .dim { color: #5a8a6e; }
+
+  /* Discrete flash states — no keyframe animation, so the snapshot
+     doesn't invalidate every display frame. JS toggles these classes
+     on and off at fixed times (one paint on, one paint off). */
+  .terminal td.flash-up { background: rgba(94, 232, 176, 0.45); color: #fff; }
+  .terminal td.flash-dn { background: rgba(255, 122, 122, 0.45); color: #fff; }
+
+  .terminal footer {
+    display: flex; justify-content: space-between;
+    font-size: 11px;
+    color: #5a8a6e;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: auto;
+    padding-top: 6px;
+    border-top: 1px solid rgba(173, 232, 194, 0.08);
+  }
+
+  .hint {
+    margin-top: 18px;
+    font-size: 13px;
+    color: #5a8a6e;
+    max-width: 600px;
+    text-align: center;
+    line-height: 1.5;
+    font-family: system-ui, sans-serif;
+  }
+  .hint kbd {
+    padding: 1px 6px;
+    background: rgba(173, 232, 194, 0.08);
+    border: 1px solid rgba(173, 232, 194, 0.2);
+    border-radius: 3px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+  }
+
+  .unsupported {
+    display: none;
+    max-width: 520px;
+    padding: 16px 20px;
+    margin: 40px;
+    background: #2a1f1f;
+    border: 1px solid #754;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: system-ui, sans-serif;
+    color: #ffbaba;
+  }
+  body[data-unsupported] .frame { display: none; }
+  body[data-unsupported] .hint { display: none; }
+  body[data-unsupported] .unsupported { display: block; }
+</style>
+
+<div class="frame">
+  <canvas id="display" layoutsubtree width="1760" height="1120" aria-label="Market terminal">
+    <div class="terminal" id="terminal" role="region" aria-label="Live market data">
+      <div class="hud">
+        <h1>TERMINAL · MARKET WATCH</h1>
+        <span class="now" id="now" aria-live="off"></span>
+      </div>
+      <div class="controls" role="toolbar" aria-label="Filter">
+        <button type="button" data-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-filter="up" aria-pressed="false">Gainers</button>
+        <button type="button" data-filter="dn" aria-pressed="false">Losers</button>
+      </div>
+      <table id="tickers" aria-label="Tickers">
+        <thead>
+          <tr>
+            <th scope="col" data-sort="sym" aria-sort="ascending" tabindex="0">Symbol</th>
+            <th scope="col" data-sort="name" tabindex="0">Name</th>
+            <th scope="col" data-sort="price" tabindex="0">Last</th>
+            <th scope="col" data-sort="delta" tabindex="0">Chg %</th>
+            <th scope="col" data-sort="vol" tabindex="0">Volume</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <footer>
+        <span>LIVE · SIMULATED DATA</span>
+        <span id="row-count">0 rows</span>
+      </footer>
+    </div>
+  </canvas>
+</div>
+
+<p class="hint">
+  Every ticker row is real HTML. Tab to the table, then use arrow keys
+  between rows. Click a header (or press <kbd>Enter</kbd>) to sort.
+  The CRT look is applied via 2D canvas compositing — the DOM below it is unchanged.
+</p>
+
+<div class="unsupported" role="alert">
+  This demo needs Chromium Canary with <code>chrome://flags/#canvas-draw-element</code>
+  enabled. Your browser doesn't have the API — you're seeing nothing because the
+  WebGL pipeline has no source to sample.
+</div>
+
+<script>
+  if (!('onpaint' in HTMLCanvasElement.prototype)) {
+    document.body.setAttribute('data-unsupported', '');
+    throw new Error('HTML-in-Canvas flag is not enabled.');
+  }
+
+  const display = document.getElementById('display');
+  const terminal = document.getElementById('terminal');
+  const tbody = document.getElementById('rows');
+  const ctx = display.getContext('2d');
+
+  // ---- Ticker model ----
+  const symbols = [
+    ['AAPL','Apple Inc.',     188.42],
+    ['MSFT','Microsoft',      412.10],
+    ['NVDA','NVIDIA',         921.55],
+    ['GOOG','Alphabet',       168.77],
+    ['AMZN','Amazon',         186.22],
+    ['META','Meta Platforms', 486.32],
+    ['TSLA','Tesla',          194.08],
+    ['BRK.B','Berkshire Hath.',416.71],
+    ['JPM','JPMorgan Chase',  205.44],
+    ['V','Visa',              278.60],
+    ['WMT','Walmart',          79.15],
+    ['MA','Mastercard',       456.71],
+    ['PG','Procter & Gamble', 168.30],
+    ['XOM','Exxon Mobil',     112.90],
+    ['JNJ','Johnson & Johnson',151.42],
+    ['HD','Home Depot',       348.11],
+    ['KO','Coca-Cola',         63.88],
+    ['BAC','Bank of America',  39.55],
+    ['PFE','Pfizer',           27.81],
+    ['DIS','Disney',           99.33],
+    ['NFLX','Netflix',        674.40],
+    ['CRM','Salesforce',      298.12],
+    ['ADBE','Adobe',          523.77],
+    ['INTC','Intel',           34.22],
+    ['AMD','AMD',             158.93],
+  ];
+  const tickers = symbols.map(([sym, name, price]) => ({
+    sym, name,
+    basePrice: price,
+    price,
+    delta: 0,
+    vol: Math.floor(2_000_000 + Math.random() * 80_000_000),
+  }));
+
+  let sortKey = 'sym';
+  let sortDir = 1;
+  let filter = 'all';
+
+  function render() {
+    let rows = tickers;
+    if (filter === 'up') rows = rows.filter(t => t.delta >= 0);
+    if (filter === 'dn') rows = rows.filter(t => t.delta < 0);
+
+    rows = [...rows].sort((a, b) => {
+      const av = a[sortKey], bv = b[sortKey];
+      if (typeof av === 'string') return sortDir * av.localeCompare(bv);
+      return sortDir * (av - bv);
+    });
+
+    // Diff-friendly rebuild (small enough that we can replace innerHTML).
+    const prev = new Map([...tbody.children].map((tr) => [tr.dataset.sym, tr]));
+    tbody.innerHTML = '';
+    for (const t of rows) {
+      let tr = prev.get(t.sym);
+      if (!tr) {
+        tr = document.createElement('tr');
+        tr.dataset.sym = t.sym;
+        tr.tabIndex = 0;
+        tr.innerHTML = `
+          <td class="t"></td>
+          <td class="dim"></td>
+          <td class="price"></td>
+          <td class="delta"></td>
+          <td class="vol"></td>
+        `;
+      }
+      const cells = tr.children;
+      cells[0].textContent = t.sym;
+      cells[1].textContent = t.name;
+      const prevPrice = parseFloat(cells[2].textContent.replace(/[^\d.]/g, '')) || t.price;
+      cells[2].textContent = t.price.toFixed(2);
+      if (t.price > prevPrice + 0.001) {
+        cells[2].classList.remove('flash-dn');
+        cells[2].classList.add('flash-up');
+        setTimeout(() => cells[2].classList.remove('flash-up'), 400);
+      } else if (t.price < prevPrice - 0.001) {
+        cells[2].classList.remove('flash-up');
+        cells[2].classList.add('flash-dn');
+        setTimeout(() => cells[2].classList.remove('flash-dn'), 400);
+      }
+      cells[3].textContent = (t.delta >= 0 ? '+' : '') + t.delta.toFixed(2) + '%';
+      cells[3].className = 'delta ' + (t.delta >= 0 ? 'up' : 'dn');
+      cells[4].textContent = (t.vol / 1_000_000).toFixed(2) + 'M';
+      cells[4].className = 'vol dim';
+      tbody.appendChild(tr);
+    }
+    document.getElementById('row-count').textContent = rows.length + ' rows';
+    // Headers.
+    for (const th of document.querySelectorAll('th[data-sort]')) {
+      if (th.dataset.sort === sortKey) {
+        th.setAttribute('aria-sort', sortDir > 0 ? 'ascending' : 'descending');
+      } else {
+        th.removeAttribute('aria-sort');
+      }
+    }
+  }
+
+  // Random-walk price updates on a fixed interval (not a rAF loop).
+  // Each tick produces at most TWO paints: one when flash classes go on,
+  // one 400ms later when they come off.
+  function tickMarket() {
+    const count = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < count; i++) {
+      const t = tickers[Math.floor(Math.random() * tickers.length)];
+      const change = (Math.random() - 0.5) * 0.012 * t.basePrice;
+      t.price = Math.max(0.5, t.price + change);
+      t.delta = ((t.price - t.basePrice) / t.basePrice) * 100;
+      t.vol += Math.floor(Math.random() * 50_000);
+    }
+    document.getElementById('now').textContent = new Date().toLocaleTimeString();
+    render();
+    display.requestPaint();
+    // Second paint after flash classes come off (see setTimeout in render()).
+    setTimeout(() => display.requestPaint(), 420);
+  }
+  render();
+  setInterval(tickMarket, 900);
+
+  // Header sort.
+  for (const th of document.querySelectorAll('th[data-sort]')) {
+    const toggle = () => {
+      if (sortKey === th.dataset.sort) sortDir = -sortDir;
+      else { sortKey = th.dataset.sort; sortDir = 1; }
+      render();
+      display.requestPaint();
+    };
+    th.addEventListener('click', toggle);
+    th.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    });
+  }
+
+  // Filter buttons.
+  for (const btn of document.querySelectorAll('[data-filter]')) {
+    btn.addEventListener('click', () => {
+      filter = btn.dataset.filter;
+      for (const b of document.querySelectorAll('[data-filter]')) {
+        b.setAttribute('aria-pressed', b === btn);
+      }
+      render();
+      display.requestPaint();
+    });
+  }
+
+  // Arrow-key row navigation inside the table.
+  tbody.addEventListener('keydown', (e) => {
+    const rows = [...tbody.children];
+    const idx = rows.indexOf(document.activeElement);
+    if (idx < 0) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); rows[Math.min(idx + 1, rows.length - 1)].focus(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); rows[Math.max(idx - 1, 0)].focus(); }
+  });
+
+  // ---- 2D CRT post-process ----
+  // Pure 2D: draw the terminal DOM, then composite scanlines, vignette,
+  // and subtle chromatic aberration on top via canvas globalCompositeOperation.
+
+  // Pre-build a scanline pattern once — cheap tiled image, no per-frame cost.
+  const scanCanvas = document.createElement('canvas');
+  scanCanvas.width = 1;
+  scanCanvas.height = 4;
+  {
+    const sctx = scanCanvas.getContext('2d');
+    sctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+    sctx.fillRect(0, 0, 1, 2);
+    sctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+    sctx.fillRect(0, 2, 1, 2);
+  }
+  const scanPattern = ctx.createPattern(scanCanvas, 'repeat');
+
+  display.onpaint = () => {
+    const W = display.width;
+    const H = display.height;
+
+    ctx.reset();
+    ctx.fillStyle = '#030405';
+    ctx.fillRect(0, 0, W, H);
+
+    // 1. Chromatic-aberration: three slightly-offset passes of the terminal,
+    //    one per channel, using lighter composition. Subtle — not more than
+    //    a device pixel or two.
+    const caPx = Math.max(1, W * 0.0012);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+
+    // Main pass.
+    const sync = ctx.drawElementImage(terminal, 0, 0, W, H);
+    terminal.style.transform = sync.toString();
+
+    // Red-shifted ghost to the right.
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.25;
+    ctx.filter = 'hue-rotate(-10deg) saturate(2) brightness(1.1)';
+    ctx.drawElementImage(terminal, caPx, 0, W, H);
+    ctx.restore();
+
+    // Blue-shifted ghost to the left.
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.25;
+    ctx.filter = 'hue-rotate(20deg) saturate(2) brightness(1.1)';
+    ctx.drawElementImage(terminal, -caPx, 0, W, H);
+    ctx.restore();
+
+    // 2. Scanlines.
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = scanPattern;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    // 3. Vignette.
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    const vig = ctx.createRadialGradient(
+      W / 2, H / 2, Math.min(W, H) * 0.3,
+      W / 2, H / 2, Math.max(W, H) * 0.75
+    );
+    vig.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    vig.addColorStop(1, 'rgba(20, 40, 30, 1)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    // 4. Green phosphor tint.
+    ctx.save();
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.fillStyle = 'rgba(60, 200, 120, 0.25)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  };
+  display.requestPaint();
+
+  new ResizeObserver(([entry]) => {
+    const box = entry.devicePixelContentBoxSize[0];
+    display.width = box.inlineSize;
+    display.height = box.blockSize;
+    display.requestPaint();
+  }).observe(display, { box: 'device-pixel-content-box' });
+</script>

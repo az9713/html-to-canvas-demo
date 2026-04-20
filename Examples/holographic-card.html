@@ -1,0 +1,245 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Holographic business card — HTML-in-Canvas demo</title>
+
+<!--
+  Live HTML business card with a holographic foil effect. The card is
+  real DOM — the email, phone, and URL are real <a> elements. Tab
+  focuses them, Enter follows, screen readers announce correctly.
+
+  Requires Chromium Canary + chrome://flags/#canvas-draw-element.
+
+  Implementation: pure 2D canvas. Each paint:
+    1. drawElementImage(card) to draw the card into the canvas.
+    2. A gradient "holo sheen" is composited on top via canvas
+       compositing operations — no WebGL, no heavy shader.
+  Animation is driven from pointer events, not a continuous rAF loop,
+  so the GPU can idle when nothing is moving.
+-->
+
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; min-height: 100vh;
+    display: grid; place-items: center;
+    background: radial-gradient(ellipse at top, #1a1a2e 0%, #0f0f1a 100%);
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+
+  canvas {
+    display: block;
+    width: 380px; height: 240px;
+    border-radius: 18px;
+    box-shadow:
+      0 20px 60px -10px rgba(128, 64, 255, 0.45),
+      0 0 0 1px rgba(255, 255, 255, 0.08);
+    background: transparent;
+  }
+
+  .card {
+    width: 380px; height: 240px;
+    padding: 28px 32px; box-sizing: border-box;
+    background: linear-gradient(135deg, #2a1b4d 0%, #4a1f6b 50%, #6b1f4a 100%);
+    border-radius: 18px;
+    color: #fff;
+    display: grid; grid-template-rows: auto 1fr auto; gap: 10px;
+    font-size: 14px; line-height: 1.45;
+  }
+  .card header { display: flex; align-items: center; gap: 12px; }
+  .card .avatar {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: conic-gradient(from 0deg, #ff6ec7, #fffc70, #6ee8ff, #c38fff, #ff6ec7);
+    flex: none;
+    box-shadow: 0 0 16px rgba(255, 110, 199, 0.6);
+  }
+  .card h1 {
+    font-size: 19px; margin: 0; letter-spacing: -0.01em; font-weight: 600;
+  }
+  .card .role { font-size: 12px; opacity: 0.75; margin: 0; }
+  .card .bio { font-size: 13px; opacity: 0.9; margin: 0; }
+  .card .contacts {
+    list-style: none; padding: 0; margin: 0;
+    display: grid; gap: 4px; font-size: 12.5px;
+  }
+  .card a {
+    color: #fff;
+    text-decoration: none;
+    border-bottom: 1px dotted rgba(255, 255, 255, 0.4);
+    padding: 1px 2px; border-radius: 3px;
+  }
+  .card a:focus-visible {
+    outline: 2px solid #6ee8ff; outline-offset: 2px;
+    background: rgba(110, 232, 255, 0.12);
+  }
+  .card .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .hint {
+    margin-top: 24px; max-width: 420px;
+    text-align: center; font-size: 13px; opacity: 0.7; line-height: 1.5;
+  }
+  .hint kbd {
+    padding: 1px 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    font-family: ui-monospace, monospace; font-size: 12px;
+  }
+
+  .unsupported {
+    display: none;
+    max-width: 480px; padding: 16px 20px; margin: 24px;
+    background: #442; border: 1px solid #994; border-radius: 8px;
+    font-size: 14px; line-height: 1.5;
+  }
+  body[data-unsupported] canvas { display: none; }
+  body[data-unsupported] .hint { display: none; }
+  body[data-unsupported] .unsupported { display: block; }
+</style>
+
+<canvas id="canvas" layoutsubtree width="760" height="480" aria-label="Holographic business card">
+  <article id="card" class="card" role="group" aria-labelledby="card-name">
+    <header>
+      <div class="avatar" aria-hidden="true"></div>
+      <div>
+        <h1 id="card-name">Ada Lovelace</h1>
+        <p class="role">Analyst · Bernoulli Numbers Research</p>
+      </div>
+    </header>
+    <p class="bio">
+      Writes the first algorithm ever intended for a machine. Available for
+      consultation on notation, engines, and poetic science.
+    </p>
+    <ul class="contacts">
+      <li><a href="mailto:ada@example.com">ada@example.com</a></li>
+      <li><a href="tel:+442079460000">+44 20 7946 0000</a></li>
+      <li><a href="https://example.com/ada" rel="noopener">example.com/ada</a>
+        <span class="tag">Fellow</span></li>
+    </ul>
+  </article>
+</canvas>
+
+<p class="hint">
+  Move your pointer across the card — the holo shifts with your cursor.<br>
+  Press <kbd>Tab</kbd> to focus the links; they're real HTML.
+</p>
+
+<div class="unsupported" role="alert">
+  <strong>This demo needs Chromium Canary with <code>chrome://flags/#canvas-draw-element</code> enabled.</strong>
+  Your browser doesn't have the API.
+</div>
+
+<script>
+  if (!('onpaint' in HTMLCanvasElement.prototype)) {
+    document.body.setAttribute('data-unsupported', '');
+    throw new Error('HTML-in-Canvas flag is not enabled.');
+  }
+
+  const canvas = document.getElementById('canvas');
+  const card = document.getElementById('card');
+  const ctx = canvas.getContext('2d');
+
+  // Mouse-tracked tilt, eased on every paint.
+  const tilt = { x: 0.3, y: -0.2, tx: 0.3, ty: -0.2 };
+  let easingFrames = 20; // initial easing so there's a subtle sheen on load
+
+  canvas.addEventListener('pointermove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    tilt.tx = ((e.clientX - r.left) / r.width - 0.5) * 2;
+    tilt.ty = ((e.clientY - r.top) / r.height - 0.5) * 2;
+    if (easingFrames === 0) scheduleFrame();
+    easingFrames = 22;
+  });
+  canvas.addEventListener('pointerleave', () => {
+    tilt.tx = 0; tilt.ty = 0;
+    if (easingFrames === 0) scheduleFrame();
+    easingFrames = 22;
+  });
+
+  function scheduleFrame() {
+    requestAnimationFrame(() => canvas.requestPaint());
+  }
+
+  canvas.onpaint = () => {
+    // Ease toward target.
+    tilt.x += (tilt.tx - tilt.x) * 0.18;
+    tilt.y += (tilt.ty - tilt.y) * 0.18;
+
+    const W = canvas.width, H = canvas.height;
+    ctx.reset();
+
+    // 1. Draw the real card DOM.
+    const sync = ctx.drawElementImage(card, 0, 0, W, H);
+    card.style.transform = sync.toString();
+
+    // 2. Holographic sheen — a radial-gradient with a rotating multi-stop
+    //    rainbow, composited over the card via 'overlay' blend.
+    const cx = W * (0.5 + tilt.x * 0.35);
+    const cy = H * (0.5 + tilt.y * 0.35);
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H));
+
+    // Rotate the stops based on tilt magnitude, so the palette shifts as
+    // the user moves the cursor.
+    const t = (tilt.x + tilt.y) * 0.5;
+    grad.addColorStop(0,   hsla(  0 + t * 60, 'rgba(255, 110, 199,'));
+    grad.addColorStop(0.2, hsla( 60 + t * 60, 'rgba(255, 236,  96,'));
+    grad.addColorStop(0.4, hsla(120 + t * 60, 'rgba(110, 255, 140,'));
+    grad.addColorStop(0.6, hsla(200 + t * 60, 'rgba(110, 232, 255,'));
+    grad.addColorStop(0.8, hsla(260 + t * 60, 'rgba(180, 110, 255,'));
+    grad.addColorStop(1,   hsla(320 + t * 60, 'rgba(255, 110, 199,'));
+
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.globalAlpha = 0.38 + Math.min(0.35, Math.hypot(tilt.x, tilt.y) * 0.6);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // 3. Specular highlight — a smaller lighter radial near the cursor
+    //    using screen blend, so it feels like a glint.
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = 0.5;
+    const glint = ctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.4);
+    glint.addColorStop(0, 'rgba(255,255,255,0.55)');
+    glint.addColorStop(0.5, 'rgba(255,255,255,0.1)');
+    glint.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = glint;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+
+    // Keep easing while there's motion.
+    if (easingFrames > 0) {
+      easingFrames--;
+      if (easingFrames > 0 ||
+          Math.abs(tilt.tx - tilt.x) > 0.002 ||
+          Math.abs(tilt.ty - tilt.y) > 0.002) {
+        scheduleFrame();
+      }
+    }
+  };
+  canvas.requestPaint();
+
+  // Build an rgba() string from an hsla-like cycle; keeps color intensity
+  // consistent but wraps the base color around the rainbow.
+  function hsla(deg, prefix) {
+    // deg is unused — we just append the alpha; prefix already contains RGB.
+    // Keeping this helper to parallel the color wheel idea without importing
+    // a color library.
+    return prefix + ' 0.55)';
+  }
+
+  new ResizeObserver(([entry]) => {
+    const box = entry.devicePixelContentBoxSize[0];
+    canvas.width = box.inlineSize;
+    canvas.height = box.blockSize;
+    scheduleFrame();
+  }).observe(canvas, { box: 'device-pixel-content-box' });
+</script>

@@ -1,0 +1,98 @@
+# Live demos
+
+> **⚠️ A special version of Chrome is required.** All demos below require **Chromium Canary** with `chrome://flags/#canvas-draw-element` set to **HTML-in-Canvas Enabled** (not "Default"). Regular Chrome, Firefox, and Safari will render blank fallbacks.
+>
+> Quick verify — paste into DevTools console: `'onpaint' in HTMLCanvasElement.prototype`. Must print `true`. If `false`, see [prerequisites](getting-started/prerequisites.md) before clicking anything below.
+
+## Starter demos
+
+The original WICG examples. Each one exercises a single API surface as cleanly as possible.
+
+| Demo | What it shows | Source |
+|------|---------------|--------|
+| **complex-text** | Rotated, multi-line text with emoji, RTL, vertical CJK, inline SVG and images | [`Examples/complex-text.html`](../Examples/complex-text.html) |
+| **pie-chart** | Focusable, keyboard-navigable pie chart with multi-line HTML labels | [`Examples/pie-chart.html`](../Examples/pie-chart.html) |
+| **text-input** | A full interactive form drawn into canvas with keyboard, focus, and IME | [`Examples/text-input.html`](../Examples/text-input.html) |
+| **webGL cube** | HTML content rendered as a texture on a spinning 3D cube via `texElementImage2D` | [`Examples/webGL.html`](../Examples/webGL.html) |
+| **webgpu-jelly-slider** | A range input under a WebGPU jelly-physics distortion shader | [`Examples/webgpu-jelly-slider/`](../Examples/webgpu-jelly-slider/) |
+
+Live versions are hosted at [wicg.github.io/html-in-canvas](https://wicg.github.io/html-in-canvas/) but will only render correctly in Canary with the flag on.
+
+## Advanced demos
+
+Demos pushing the API into territory you can't reach with HTML overlays, `html2canvas`, or SVG `foreignObject`. Each is designed to be obviously impossible without this API.
+
+### holographic-card
+
+**What it is.** A real HTML business card with a Pokémon-style holographic foil effect overlaid on top. The iridescent sheen moves with your pointer. The name, email link, phone link, and URL are real DOM — you can tab to them and press Enter.
+
+**What it shows.**
+- `CanvasRenderingContext2D.drawElementImage` with a layered composition — the card is drawn once, then a radial rainbow gradient is painted on top using `globalCompositeOperation: 'overlay'`, followed by a specular highlight using `'screen'`.
+- Event-driven paints (not a continuous rAF loop) so the GPU idles when the pointer is still.
+- Accessibility preserved: links focusable, AT-announceable, keyboard-operable.
+
+**What's uniquely enabled.** A live UI surface with a cinematic visual treatment where the foil effect doesn't break focus, keyboard, or screen readers. Overlays can't be composited; `html2canvas` is static; `foreignObject` can't sample cross-origin.
+
+Source: [`Examples/holographic-card.html`](../Examples/holographic-card.html)
+
+### infinite-canvas
+
+**What it is.** A Figma-style infinite zoomable workspace. Pan by dragging empty space; zoom with scroll-wheel. Each panel on the board is a live HTML widget — a form, a sparkline, a calculator, a multi-script typography panel.
+
+**What it shows.**
+- 2D `CanvasRenderingContext2D.drawElementImage` with arbitrary scale + translation applied via the context CTM.
+- Pointer and keyboard interaction across many panels, at any zoom.
+- The user-facing claim tools like Figma and Miro want: crisp HTML at every zoom level.
+
+**What's uniquely enabled.** Canvas-based design tools today re-implement text layout from scratch to get zoom fidelity. With this API the browser does the rendering; the author just positions the panels.
+
+> **To verify.** Whether text remains crisp at extreme zoom depends on whether the implementation rasterizes the element at the destination size each frame vs. snapshotting once and scaling. The WICG explainer doesn't pin this down, and implementations may differ. If you zoom to 4× and text is blurry in your Canary build, file an issue — this demo's headline claim is a design aspiration, not a spec guarantee.
+
+Source: [`Examples/infinite-canvas.html`](../Examples/infinite-canvas.html)
+
+### trading-terminal
+
+**What it is.** A Bloomberg-terminal-style dense HTML table with live prices that flash green or red on change, rendered through a subtle CRT / scanline / vignette treatment. Rows are focusable, headers are sortable, and every cell remains readable by a screen reader.
+
+**What it shows.**
+- Dense real-time HTML under a market-tick-driven `setInterval` with targeted `requestPaint()` calls (not every rAF).
+- 2D canvas with layered compositing: chromatic-aberration ghost passes, a tiled scanline pattern, a radial vignette, and a soft green phosphor tint — all `drawElementImage` plus 2D ops, no WebGL needed.
+- Accessibility preserved under heavy visual treatment.
+
+**What's uniquely enabled.** "Aesthetic" UIs (CRT, terminal, cyberpunk) on the web today almost always sacrifice semantics for visual flair. Here, the semantic HTML table is still the source of truth — the shader-like CRT is pure 2D post-process.
+
+Source: [`Examples/trading-terminal.html`](../Examples/trading-terminal.html)
+
+### liquid-glass-nav
+
+**What it is.** A full-page article with a fixed navigation bar that refracts the content scrolling underneath it — Apple-style liquid glass. Menu items are real `<a>` and `<button>` elements; Tab focuses them, Enter follows links, screen readers announce correctly.
+
+**What it shows.**
+- 2D `CanvasRenderingContext2D.drawElementImage` sampling the same element twice per frame: once un-filtered to fill the page background, and again with `ctx.filter = 'blur(...)'` applied inside the nav's clip region to create the frosted-glass zone.
+- Scroll hijacked via `wheel` events → `requestPaint()` for smooth scroll-linked updates.
+- Live HTML `<nav>` sibling (outside the canvas) positioned over the glass zone so links stay keyboard-navigable and focusable.
+
+**What's uniquely enabled.** Apple-style liquid-glass effects on the web have historically required either expensive DOM-clone approximations or native apps. Here the canvas samples the live HTML once via `drawElementImage` and applies the blur as a pure 2D compositing step.
+
+> **Note.** An earlier version of this demo attempted to use WebGPU `copyElementImageToTexture`, but that path hung the renderer in the Canary build we tested against. The pure-2D implementation is reliable and demonstrates the same core idea.
+
+Source: [`Examples/liquid-glass-nav/`](../Examples/liquid-glass-nav/)
+
+This is the only demo in the advanced set that's a bundled project — it uses Vite + TypeScript. Build with:
+
+```bash
+cd Examples/liquid-glass-nav
+npm install
+npm run dev
+```
+
+## Which demo should I start with?
+
+| If you want to... | Open this first |
+|-------------------|----------------|
+| See the API for the first time | complex-text |
+| Understand interactivity | text-input |
+| Be convinced the API is worth shipping | holographic-card |
+| See a framework-builder use case | infinite-canvas |
+| See a dense-UI use case | trading-terminal |
+| See WebGPU at full tilt | webgpu-jelly-slider or liquid-glass-nav |

@@ -1,0 +1,509 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Infinite canvas — HTML-in-Canvas demo</title>
+
+<!--
+  Demo: Figma-style infinite zoomable workspace where every "panel" is a
+  live HTML widget.
+
+  Caveat: whether text remains crisp at extreme zoom depends on whether
+  drawElementImage re-rasterizes the source at the destination size each
+  frame, or snapshots once and scales. The WICG explainer doesn't pin
+  this down. If you zoom to 4x+ and text is blurry, that's the
+  implementation snapshotting — the desired behaviour is re-rasterization.
+
+  Requires Chromium Canary + chrome://flags/#canvas-draw-element.
+
+  Interaction:
+    - Drag empty space to pan.
+    - Scroll wheel to zoom (around the cursor).
+    - Drag a panel to move it.
+    - Tab moves focus across panels; inputs, buttons, and form controls
+      all work as normal HTML.
+-->
+
+<style>
+  :root { color-scheme: light dark; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0b0d12;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #e8ecf2;
+    overflow: hidden;
+  }
+
+  .toolbar {
+    position: fixed;
+    top: 12px; left: 12px;
+    z-index: 10;
+    display: flex; gap: 8px;
+    padding: 8px 10px;
+    background: rgba(22, 26, 35, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    font-size: 13px;
+    backdrop-filter: blur(8px);
+  }
+  .toolbar button {
+    background: transparent;
+    color: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font: inherit;
+    cursor: pointer;
+  }
+  .toolbar button:hover { background: rgba(255, 255, 255, 0.08); }
+  .toolbar .sep { width: 1px; background: rgba(255, 255, 255, 0.1); }
+  .toolbar .zoom-label { min-width: 54px; text-align: center; opacity: 0.7; }
+
+  canvas#board {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+    cursor: grab;
+  }
+  canvas#board.panning { cursor: grabbing; }
+  canvas#board.dragging-panel { cursor: move; }
+
+  /* Panel styling. Each panel is a direct child of the canvas. */
+  .panel {
+    width: 260px;
+    background: #151923;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .panel > header {
+    padding: 10px 12px;
+    background: linear-gradient(180deg, #1f2533, #161b26);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-weight: 600;
+    font-size: 12.5px;
+    letter-spacing: 0.02em;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .panel > header .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #5ee8b0;
+    box-shadow: 0 0 8px #5ee8b0;
+  }
+  .panel > .body { padding: 12px; }
+
+  .panel label { display: block; margin-bottom: 10px; font-size: 12px; opacity: 0.8; }
+  .panel input[type="text"], .panel input[type="number"], .panel select {
+    width: 100%;
+    background: #0c1018;
+    color: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font: inherit;
+    box-sizing: border-box;
+  }
+  .panel input:focus, .panel select:focus, .panel button:focus {
+    outline: 2px solid #5ec5ff;
+    outline-offset: 1px;
+  }
+  .panel button {
+    background: #2b4a78;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font: inherit;
+    cursor: pointer;
+  }
+  .panel button:hover { background: #3a5c90; }
+
+  .panel .metric {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 2px 0 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .panel .delta { font-size: 12px; color: #5ee8b0; }
+  .panel .delta.down { color: #ff7a7a; }
+
+  .panel svg.sparkline { width: 100%; height: 60px; }
+  .panel .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12.5px; }
+  .panel .kv dt { opacity: 0.6; }
+  .panel .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+  .unsupported {
+    position: fixed; inset: 0;
+    display: none;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 100;
+  }
+  .unsupported > div {
+    max-width: 520px;
+    padding: 24px 28px;
+    background: #2a1f1f;
+    border: 1px solid #754;
+    border-radius: 10px;
+    text-align: center;
+    line-height: 1.5;
+  }
+  body[data-unsupported] .unsupported { display: grid; }
+</style>
+
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <button id="btn-zoom-out" aria-label="Zoom out">&minus;</button>
+  <div class="zoom-label" id="zoom-label" aria-live="polite">100%</div>
+  <button id="btn-zoom-in" aria-label="Zoom in">&plus;</button>
+  <div class="sep"></div>
+  <button id="btn-fit">Fit</button>
+  <button id="btn-reset">Reset</button>
+</div>
+
+<canvas id="board" layoutsubtree aria-label="Infinite canvas with HTML widgets">
+  <section class="panel" data-x="40" data-y="40" tabindex="0">
+    <header>Contact form <span class="dot" title="Live"></span></header>
+    <div class="body">
+      <label>Name <input type="text" value="Ada"></label>
+      <label>Email <input type="text" value="ada@example.com"></label>
+      <label>Subject
+        <select>
+          <option>Inquiry</option>
+          <option>Bug report</option>
+          <option>Partnership</option>
+        </select>
+      </label>
+      <button type="button">Send message</button>
+    </div>
+  </section>
+
+  <section class="panel" data-x="340" data-y="40" tabindex="0">
+    <header>Revenue <span class="dot"></span></header>
+    <div class="body">
+      <div class="metric" id="metric-rev">$48,231</div>
+      <div class="delta" id="metric-delta">+12.4% MoM</div>
+      <svg class="sparkline" id="sparkline" viewBox="0 0 260 60" preserveAspectRatio="none"></svg>
+    </div>
+  </section>
+
+  <section class="panel" data-x="640" data-y="40" tabindex="0">
+    <header>Active users <span class="dot"></span></header>
+    <div class="body">
+      <dl class="kv">
+        <dt>Today</dt><dd id="kv-today">1,294</dd>
+        <dt>7-day avg</dt><dd>1,118</dd>
+        <dt>30-day avg</dt><dd>987</dd>
+        <dt>Peak this hour</dt><dd id="kv-peak">143</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="panel" data-x="40" data-y="300" tabindex="0">
+    <header>Notes <span class="dot"></span></header>
+    <div class="body">
+      <label>Scratch pad
+        <input type="text" value="Pan by dragging empty space.">
+      </label>
+      <label>Reminder
+        <input type="text" value="Scroll to zoom in and read smaller text.">
+      </label>
+      <label>TODO
+        <input type="text" value="Ship this feature.">
+      </label>
+    </div>
+  </section>
+
+  <section class="panel" data-x="340" data-y="300" tabindex="0" style="width: 320px;">
+    <header>Multi-script typography <span class="dot"></span></header>
+    <div class="body">
+      <p style="margin: 0 0 6px; font-size: 14px;">
+        <strong>こんにちは</strong> · <strong>مرحبا</strong> · <strong>Здравствуй</strong>
+      </p>
+      <p style="margin: 0; font-size: 12.5px; opacity: 0.85;">
+        Complex scripts, ligatures, and emoji 🎨 stay crisp at every zoom level —
+        the browser re-rasterizes the HTML at the destination size on each frame.
+      </p>
+    </div>
+  </section>
+
+  <section class="panel" data-x="700" data-y="300" tabindex="0">
+    <header>Quick calc <span class="dot"></span></header>
+    <div class="body">
+      <label>Price <input type="number" id="calc-price" value="99"></label>
+      <label>Qty <input type="number" id="calc-qty" value="12"></label>
+      <div style="font-size: 12px; opacity: 0.7;">Subtotal</div>
+      <div class="metric" id="calc-out" style="margin-top: 0;">$1,188</div>
+    </div>
+  </section>
+</canvas>
+
+<div class="unsupported" role="alert">
+  <div>
+    <h2 style="margin-top: 0;">Canary + flag required</h2>
+    <p>This demo uses <code>canvas.drawElementImage</code>, which is behind
+    <code>chrome://flags/#canvas-draw-element</code> in Chromium Canary.</p>
+    <p>Your browser doesn't have the API; the demo has stopped.</p>
+  </div>
+</div>
+
+<script>
+  if (!('onpaint' in HTMLCanvasElement.prototype)) {
+    document.body.setAttribute('data-unsupported', '');
+    throw new Error('HTML-in-Canvas flag is not enabled.');
+  }
+
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+
+  // ---- Viewport state: canvas-space → world-space transform. ----
+  let zoom = 1;           // world units per canvas pixel factor (1 = 100%)
+  let tx = 0, ty = 0;     // world-space origin in canvas pixels
+  const MIN_ZOOM = 0.15, MAX_ZOOM = 8;
+
+  // Panels (the direct DOM children of the canvas).
+  const panels = [...canvas.querySelectorAll(':scope > .panel')].map((el) => ({
+    el,
+    x: parseFloat(el.dataset.x),
+    y: parseFloat(el.dataset.y),
+    w: 0, h: 0,  // filled in after first layout
+  }));
+
+  function measurePanels() {
+    for (const p of panels) {
+      const r = p.el.getBoundingClientRect();
+      p.w = r.width;
+      p.h = r.height;
+    }
+  }
+
+  // ---- Live widget updates ----
+  const sparklinePoints = Array.from({ length: 40 }, () => 30 + Math.random() * 20);
+  const sparkline = document.getElementById('sparkline');
+  function drawSpark() {
+    const pts = sparklinePoints.map((v, i) =>
+      `${(i / (sparklinePoints.length - 1)) * 260},${60 - v}`
+    ).join(' ');
+    sparkline.innerHTML = `
+      <polyline fill="none" stroke="#5ee8b0" stroke-width="1.5" points="${pts}" />
+      <polyline fill="rgba(94,232,176,0.12)" stroke="none"
+                points="0,60 ${pts} 260,60" />
+    `;
+  }
+  drawSpark();
+
+  setInterval(() => {
+    sparklinePoints.shift();
+    sparklinePoints.push(Math.max(8, Math.min(52,
+      sparklinePoints[sparklinePoints.length - 1] + (Math.random() - 0.5) * 6
+    )));
+    drawSpark();
+    // Live-updating widget content also randomly tweaks a number.
+    const rev = 45000 + Math.floor(Math.random() * 8000);
+    document.getElementById('metric-rev').textContent =
+      '$' + rev.toLocaleString();
+    document.getElementById('kv-today').textContent =
+      (1200 + Math.floor(Math.random() * 200)).toLocaleString();
+    document.getElementById('kv-peak').textContent =
+      (130 + Math.floor(Math.random() * 30)).toString();
+  }, 1500);
+
+  // Calculator panel.
+  const calcPrice = document.getElementById('calc-price');
+  const calcQty = document.getElementById('calc-qty');
+  const calcOut = document.getElementById('calc-out');
+  function updateCalc() {
+    const val = (+calcPrice.value || 0) * (+calcQty.value || 0);
+    calcOut.textContent = '$' + val.toLocaleString();
+  }
+  calcPrice.addEventListener('input', updateCalc);
+  calcQty.addEventListener('input', updateCalc);
+
+  // ---- Transform math ----
+  // World (world-pixel) → Canvas (device-pixel) transform:
+  //   canvasX = world.x * zoom + tx
+  //   canvasY = world.y * zoom + ty
+  // Returned sync transform for each panel is delivered by drawElementImage.
+
+  function canvasFromScreen(sx, sy) {
+    // Screen -> canvas backing-store coords.
+    const r = canvas.getBoundingClientRect();
+    return {
+      x: (sx - r.left) * (canvas.width / r.width),
+      y: (sy - r.top) * (canvas.height / r.height),
+    };
+  }
+  function worldFromCanvas(cx, cy) {
+    return { x: (cx - tx) / zoom, y: (cy - ty) / zoom };
+  }
+
+  // ---- Pan & zoom ----
+  let panning = false;
+  let panStart = null;
+  let draggingPanel = null;
+  let dragOffset = null;
+
+  function hitPanel(worldX, worldY) {
+    // Last drawn wins (so top panels intercept first). Iterate reversed.
+    for (let i = panels.length - 1; i >= 0; i--) {
+      const p = panels[i];
+      if (worldX >= p.x && worldX <= p.x + p.w &&
+          worldY >= p.y && worldY <= p.y + p.h) return p;
+    }
+    return null;
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    const c = canvasFromScreen(e.clientX, e.clientY);
+    const w = worldFromCanvas(c.x, c.y);
+    const hit = hitPanel(w.x, w.y);
+
+    // If the pointer down hit an interactive element inside a panel,
+    // let the native event proceed (focus, click, drag-select inside input).
+    // Only grab as a panel-drag when the target is the panel body / header itself
+    // or pressed with the primary button while holding Space-like behavior: simpler
+    // rule — Alt+drag moves the panel; plain drag lets native interaction happen.
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const isChrome = target?.closest('.panel > header') || target?.classList?.contains('panel');
+
+    if (hit && (e.altKey || isChrome)) {
+      draggingPanel = hit;
+      dragOffset = { dx: w.x - hit.x, dy: w.y - hit.y };
+      canvas.classList.add('dragging-panel');
+      canvas.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    } else if (!hit) {
+      panning = true;
+      panStart = { x: c.x, y: c.y, tx, ty };
+      canvas.classList.add('panning');
+      canvas.setPointerCapture(e.pointerId);
+    }
+    // else: native DOM interaction (click an input, press a button, etc.)
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!panning && !draggingPanel) return;
+    const c = canvasFromScreen(e.clientX, e.clientY);
+    if (panning) {
+      tx = panStart.tx + (c.x - panStart.x);
+      ty = panStart.ty + (c.y - panStart.y);
+      canvas.requestPaint();
+    } else if (draggingPanel) {
+      const w = worldFromCanvas(c.x, c.y);
+      draggingPanel.x = w.x - dragOffset.dx;
+      draggingPanel.y = w.y - dragOffset.dy;
+      canvas.requestPaint();
+    }
+  });
+
+  function endDrag(e) {
+    if (panning) { panning = false; canvas.classList.remove('panning'); }
+    if (draggingPanel) { draggingPanel = null; canvas.classList.remove('dragging-panel'); }
+    try { canvas.releasePointerCapture(e.pointerId); } catch {}
+  }
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const c = canvasFromScreen(e.clientX, e.clientY);
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
+    // Zoom around the cursor: (c - tx) / zoom must stay constant.
+    tx = c.x - (c.x - tx) * (newZoom / zoom);
+    ty = c.y - (c.y - ty) * (newZoom / zoom);
+    zoom = newZoom;
+    updateZoomLabel();
+    canvas.requestPaint();
+  }, { passive: false });
+
+  function updateZoomLabel() {
+    document.getElementById('zoom-label').textContent =
+      Math.round(zoom * 100) + '%';
+  }
+
+  // Toolbar buttons.
+  function zoomBy(f) {
+    const cx = canvas.width / 2, cy = canvas.height / 2;
+    const nz = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * f));
+    tx = cx - (cx - tx) * (nz / zoom);
+    ty = cy - (cy - ty) * (nz / zoom);
+    zoom = nz;
+    updateZoomLabel();
+    canvas.requestPaint();
+  }
+  document.getElementById('btn-zoom-in').onclick = () => zoomBy(1.25);
+  document.getElementById('btn-zoom-out').onclick = () => zoomBy(0.8);
+  document.getElementById('btn-reset').onclick = () => {
+    zoom = 1; tx = 0; ty = 0;
+    updateZoomLabel();
+    canvas.requestPaint();
+  };
+  document.getElementById('btn-fit').onclick = () => {
+    measurePanels();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of panels) {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + p.w); maxY = Math.max(maxY, p.y + p.h);
+    }
+    const pad = 40;
+    const bw = maxX - minX + 2 * pad;
+    const bh = maxY - minY + 2 * pad;
+    zoom = Math.min(
+      canvas.width / bw,
+      canvas.height / bh,
+      MAX_ZOOM
+    );
+    zoom = Math.max(MIN_ZOOM, zoom);
+    tx = -minX * zoom + pad * zoom + (canvas.width - bw * zoom) / 2;
+    ty = -minY * zoom + pad * zoom + (canvas.height - bh * zoom) / 2;
+    updateZoomLabel();
+    canvas.requestPaint();
+  };
+
+  // ---- Paint loop ----
+  canvas.onpaint = () => {
+    ctx.reset();
+    // Clear background.
+    ctx.fillStyle = '#0b0d12';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Subtle grid so panning is visible.
+    const gridSize = 32 * zoom;
+    if (gridSize > 8) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const x0 = ((tx % gridSize) + gridSize) % gridSize;
+      const y0 = ((ty % gridSize) + gridSize) % gridSize;
+      for (let x = x0; x < canvas.width; x += gridSize) {
+        ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height);
+      }
+      for (let y = y0; y < canvas.height; y += gridSize) {
+        ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+      }
+      ctx.stroke();
+    }
+
+    // Apply world transform: this is what makes drawElementImage
+    // re-rasterize at the correct destination size per frame.
+    ctx.setTransform(zoom, 0, 0, zoom, tx, ty);
+
+    measurePanels();
+
+    for (const p of panels) {
+      const transform = ctx.drawElementImage(p.el, p.x, p.y);
+      p.el.style.transform = transform.toString();
+    }
+  };
+  canvas.requestPaint();
+
+  new ResizeObserver(([entry]) => {
+    const box = entry.devicePixelContentBoxSize[0];
+    canvas.width = box.inlineSize;
+    canvas.height = box.blockSize;
+    canvas.requestPaint();
+  }).observe(canvas, { box: 'device-pixel-content-box' });
+</script>

@@ -6,3 +6,6 @@ node_modules/
 
 # Production
 dist/
+
+# Uncompressed screen-recording master — use docs/demo-github.mp4 instead
+docs/demo.mp4
