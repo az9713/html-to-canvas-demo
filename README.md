@@ -18,12 +18,7 @@ Once you've watched that, the demos below will make immediate sense.
 
 ## A quick tour of the demos in this fork
 
-<!-- TODO: replace PLACEHOLDER_COMPRESSED_VIDEO_URL with the uploaded
-     docs/demo-github.mp4 URL once it's live. -->
-
-https://PLACEHOLDER_COMPRESSED_VIDEO_URL
-
-*(Drag-and-drop `docs/demo-github.mp4` into a GitHub issue or comment to get a hosted URL, then paste it above.)*
+https://github.com/user-attachments/assets/9de4ce20-4db1-49e1-afcf-2eda6eb0a04f
 
 ---
 
