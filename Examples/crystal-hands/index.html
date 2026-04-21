@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Crystal Hands — HTML-in-Canvas + WebGPU</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+
+    #webcam {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      opacity: 0; /* hidden — only used as GPU texture source */
+    }
+
+    canvas#c {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      display: block;
+    }
+
+    /* HUD is a direct canvas child — captured via copyElementImageToTexture.
+       position: static is forced by layoutsubtree; flows top-left naturally. */
+    #hud {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 13px;
+      color: rgba(255,220,120,0.9);
+      line-height: 1.6;
+      text-shadow: 0 0 8px rgba(255,180,50,0.8);
+      pointer-events: none;
+      padding: 16px;
+    }
+
+    /* Controls outside canvas (keyboard accessible) */
+    #controls {
+      position: fixed; bottom: 16px; right: 16px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid rgba(255,200,80,0.3);
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: #ffdc78;
+      font-family: system-ui;
+      font-size: 12px;
+      z-index: 10;
+    }
+    #controls summary { cursor: pointer; margin-bottom: 8px; }
+    #controls label { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+
+    #flag-warning {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      background: rgba(180,30,30,0.9); color: #fff;
+      padding: 24px 32px; border-radius: 12px;
+      font-family: system-ui; text-align: center;
+      display: none;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <!-- Webcam feed - outside canvas, used as GPU texture source -->
+  <video id="webcam" autoplay muted playsinline></video>
+
+  <!-- Main canvas with HTML-in-Canvas API -->
+  <canvas id="c" layoutsubtree>
+    <!-- Direct child: HUD div captured via copyElementImageToTexture -->
+    <div id="hud">
+      <div id="hud-fps">-- fps</div>
+      <div id="hud-hands">No hands detected</div>
+      <div id="hud-gesture">—</div>
+    </div>
+  </canvas>
+
+  <!-- Controls outside canvas (keyboard accessible) -->
+  <details id="controls">
+    <summary>Settings</summary>
+    <label>Crystal tint <input type="color" id="ctrl-tint" value="#ffb830"></label>
+    <label>Caustic intensity <input type="range" id="ctrl-caustic" min="0" max="3" step="0.1" value="1.5"></label>
+    <label>Absorption <input type="range" id="ctrl-absorb" min="0.5" max="5" step="0.1" value="2.5"></label>
+  </details>
+
+  <div id="flag-warning">
+    <strong>HTML-in-Canvas flag required</strong><br>
+    Open chrome://flags/#canvas-draw-element<br>
+    Set to <em>HTML-in-Canvas Enabled</em> and relaunch.
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

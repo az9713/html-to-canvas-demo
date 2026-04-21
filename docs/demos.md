@@ -68,7 +68,7 @@ Source: [`Examples/trading-terminal.html`](../Examples/trading-terminal.html)
 **What it is.** A full-page article with a fixed navigation bar that refracts the content scrolling underneath it — Apple-style liquid glass. Menu items are real `<a>` and `<button>` elements; Tab focuses them, Enter follows links, screen readers announce correctly.
 
 **What it shows.**
-- 2D `CanvasRenderingContext2D.drawElementImage` sampling the same element twice per frame: once un-filtered to fill the page background, and again with `ctx.filter = 'blur(...)'` applied inside the nav's clip region to create the frosted-glass zone.
+- 2D `CanvasRenderingContext2D.drawElementImage` called three times per frame: once to fill the full-page background (scroll-offset), then twice inside a rounded-rect clip at the nav's bounding rect — a blurred pass (`blur(14px) saturate(1.1)`) and a chromatic-shifted pass (`'lighter'` blend, slight x-offset, `blur(18px)`) — plus two fill passes for a frost overlay and rim highlight.
 - Scroll hijacked via `wheel` events → `requestPaint()` for smooth scroll-linked updates.
 - Live HTML `<nav>` sibling (outside the canvas) positioned over the glass zone so links stay keyboard-navigable and focusable.
 
@@ -86,6 +86,30 @@ npm install
 npm run dev
 ```
 
+### crystal-hands
+
+**What it is.** Hold your hands up to your webcam — they appear as thick translucent crystal sculptures with a honey-amber glow. MediaPipe tracks 21 keypoints per hand at 60 fps; a TypeGPU WebGPU ray-march shader reconstructs each hand as 20 SDF capsule bones, smooth-unioned into one continuous crystal volume. Beer-Lambert light absorption, Fresnel rim glow, and refraction caustics run on the GPU. A live HTML stats panel (FPS, hand count, gesture label) is composited into the frame each paint via the HTML-in-Canvas API.
+
+**What it shows.**
+- `GPUQueue.copyElementImageToTexture` — live HTML `<div>` copied to GPU texture every frame, composited by the fragment shader as a HUD.
+- TypeGPU SDF ray march with 40-bone smooth-union hand volume.
+- `copyElementImageToTexture` for webcam video upload (`copyExternalImageToTexture`).
+- Real HTML controls (`<details>` for crystal tint, caustic intensity, absorption) outside the canvas — keyboard and screen-reader accessible.
+
+**What's uniquely enabled.** The HUD labels (gesture name, hand count, FPS) are real DOM — screen-reader announceable, styleable in CSS — yet they appear composited inside the GPU render frame as if native shader overlays. Without HTML-in-Canvas this would require a separate 2D canvas + manual pixel composition.
+
+Source: [`Examples/crystal-hands/`](../Examples/crystal-hands/)
+
+Build with:
+
+```bash
+cd Examples/crystal-hands
+npm install
+npm run dev
+```
+
+---
+
 ## Which demo should I start with?
 
 | If you want to... | Open this first |
@@ -95,4 +119,6 @@ npm run dev
 | Be convinced the API is worth shipping | holographic-card |
 | See a framework-builder use case | infinite-canvas |
 | See a dense-UI use case | trading-terminal |
-| See WebGPU at full tilt | webgpu-jelly-slider or liquid-glass-nav |
+| See WebGPU at full tilt | webgpu-jelly-slider |
+| See liquid-glass / blur compositing | liquid-glass-nav |
+| See WebGPU + live camera + HTML HUD | crystal-hands |

@@ -64,6 +64,7 @@ The `Examples/` directory ships nine demos in total — five originals from the 
 | Infinite canvas | Figma-style zoomable workspace with six live HTML widgets (form, sparkline, multi-script typography, calculator). Zoom with the toolbar or scroll wheel. | [`Examples/infinite-canvas.html`](Examples/infinite-canvas.html) |
 | Trading terminal | Bloomberg-style dense HTML table with CRT/scanline/vignette treatment. Sortable, focusable, screen-reader accessible. | [`Examples/trading-terminal.html`](Examples/trading-terminal.html) |
 | Liquid glass nav | Apple-style frosted-glass navigation bar with chromatic dispersion refracting a scrollable article below. Menu items are real `<a>` elements. | [`Examples/liquid-glass-nav/`](Examples/liquid-glass-nav/) |
+| Crystal hands | Real-time webcam hand tracking (MediaPipe) + WebGPU SDF ray-march shader rendering hands as translucent crystal with caustics. Live HTML stats HUD composited by the GPU via `copyElementImageToTexture`. | [`Examples/crystal-hands/`](Examples/crystal-hands/) |
 
 ---
 
@@ -121,7 +122,7 @@ Entry point: [`docs/index.md`](docs/index.md).
 
 ## What this fork adds on top of upstream
 
-- `Examples/holographic-card.html`, `Examples/infinite-canvas.html`, `Examples/trading-terminal.html`, `Examples/liquid-glass-nav/` — four new demos.
+- `Examples/holographic-card.html`, `Examples/infinite-canvas.html`, `Examples/trading-terminal.html`, `Examples/liquid-glass-nav/`, `Examples/crystal-hands/` — five new demos.
 - `Examples/index.html` — a cards landing page with live flag-status detection.
 - `docs/` — 25 markdown files, all cross-linked, covering concepts, guides, reference, architecture, and troubleshooting.
 - `docs/debugging-journal.md` — a field report of every issue encountered while writing the demos (GPU hangs on tight `texElementImage2D` loops, the undocumented `position: static` enforcement on canvas children, containing-block side effects from near-identity sync transforms, etc.).
