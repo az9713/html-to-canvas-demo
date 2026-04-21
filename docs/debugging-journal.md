@@ -1,6 +1,8 @@
 # Debugging journal
 
-A record of every non-trivial bug and design issue we hit while writing the docs and the four advanced demos (`holographic-card`, `infinite-canvas`, `trading-terminal`, `liquid-glass-nav`). Each entry is symptom → root cause → fix, with the commit-level detail left in the source.
+A record of every non-trivial bug and design issue we hit while writing the docs and the six advanced demos (`holographic-card`, `infinite-canvas`, `trading-terminal`, `liquid-glass-nav`, `crystal-hands`, `shadow-puppet`). Each entry is symptom → root cause → fix, with the commit-level detail left in the source.
+
+> **Coverage note.** The entries below focus on the first four demos. `crystal-hands` and `shadow-puppet` were added in a later pass; their notable issues (WebGPU canvas not capturable via `Page.captureScreenshot`, TypeGPU two-GPU-function composition caveat, `@typegpu/noise` Perlin inject pattern) are documented inline in the source and in the Shadow Puppet section of the [demos walkthrough](demos.md).
 
 > **Prerequisite for reproducing any of this.** All the demos require **Chromium Canary** with the flag at `chrome://flags/#canvas-draw-element` set to **HTML-in-Canvas Enabled**. The flag label in the Chrome UI is literally "HTML-in-Canvas Enabled" — if you see "Default" or "Disabled", change it and relaunch. Demos will not run in regular Chrome, Firefox, or Safari. Quick sanity check in DevTools:
 >

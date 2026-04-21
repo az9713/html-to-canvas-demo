@@ -44,7 +44,7 @@ If you see `false`, the flag isn't on. Re-check step 3.
 
 ## Demos
 
-The `Examples/` directory ships ten demos in total — five originals from the WICG repo and five new ones added in this fork.
+The `Examples/` directory ships eleven demos in total — five originals from the WICG repo and six new ones added in this fork.
 
 ### Starter demos (from upstream)
 

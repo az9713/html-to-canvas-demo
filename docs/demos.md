@@ -110,13 +110,18 @@ npm run dev
 
 ### shadow-puppet
 
-**What it is.** Hold a hand gesture up to your webcam and a cute cartoon animal spawns and animates autonomously across the screen. Eight gestures are mapped to eight animals: all-fingers-spread → Spider, four-fingers-no-thumb → Dragon, peace sign → Rabbit, rock-on (index + pinky) → Snake, point (index only) → Wolf, thumbs-up → Owl, both-hands-spread → Bird, both-hands-peace → Butterfly. Hold a gesture for 500 ms to trigger a spawn; a confidence bar in the HUD fills as you hold. Multiple animals can be on-screen at once.
+**What it is.** Hold a hand gesture up to your webcam and a cute cartoon animal spawns and wanders autonomously across the screen. Eight gestures map to eight animals: all-fingers-spread → Spider, four-fingers-no-thumb → Dragon, peace sign → Rabbit, rock-on (index + pinky) → Snake, point (index only) → Wolf, thumbs-up → Owl, both-hands-spread → Bird, both-hands-peace → Butterfly. Hold a gesture for 500 ms to trigger a spawn; a confidence bar in the HUD fills as you hold. Up to 8 animals can coexist on screen simultaneously, each wandering with soft collision avoidance.
 
 **What it shows.**
 - `CanvasRenderingContext2D.drawElementImage` for a live HUD overlay (gesture name + confidence bar + 8-gesture cheat sheet) on a separate `layoutsubtree` canvas layer.
-- Three-canvas stacking: a WebGPU fragment-only particle background (bottom), a procedural 2D canvas for animals (middle), and an HTML-in-Canvas HUD (top) — all composited by the browser, no manual blending.
-- Procedural Canvas 2D animation — all animal motion computed from elapsed time in `update(dt)`, no CSS `@keyframes` (which crash under continuous rAF per the debugging journal).
-- MediaPipe HandLandmarker two-pass gesture classifier: each hand classified independently, then combined for two-hand gestures (Bird, Butterfly).
+- Three-canvas stacking: a WebGPU animated background (bottom), a Canvas 2D layer for animals and particles (middle), and an HTML-in-Canvas HUD (top) — all composited by the browser, no manual blending.
+- SVG-in-Canvas animal rendering: each animal's geometry is defined as an inline SVG string constant (`src/animals/sprites/*.ts`), pre-loaded to an `HTMLImageElement` via `data:image/svg+xml` URL (`src/animals/svg-cache.ts`), and drawn with `ctx.drawImage()`. This gives crisp, scalable visuals at any DPR with no raster assets.
+- Physics-based autonomous motion: each animal instance is wrapped in a `PhysicsAnimal` that applies wander steering (slowly rotating `wanderAngle`), soft boundary forces, and pairwise separation forces (O(N²) over ≤ 8 animals) to prevent clustering.
+- Canvas 2D particle system: 72 firefly-like particles float upward behind the animals, each with a bright core and soft halo, cycling through a blue-cyan-purple hue range.
+- WebGPU background via TypeGPU: 6 vivid animated orbs (magenta, cyan, gold, violet, teal, orange) with 4-octave fBm Perlin noise fog and a crepuscular spotlight cone rising from the bottom centre. Uses `@typegpu/noise`'s `perlin2d.staticCache` injected into the render pipeline.
+- Gesture classifier with palm normalization: landmarks are normalized to wrist-origin / palm-scale before classification, using tip-to-wrist vs MCP-to-wrist extension ratios (threshold 1.6) instead of raw pixel offsets. Explicit curl guards (`ratio < 1.2`) prevent ambiguous gestures from misfiring. A 3-frame smoothing buffer prevents transient misfires during transitions.
+- MediaPipe HandLandmarker two-pass classifier: each hand classified independently, then combined for two-hand gestures (Bird, Butterfly).
+- Hand debug panel: a fixed bottom-right canvas (`src/hand-debug.ts`) draws the mirrored webcam feed with MediaPipe skeleton overlay, per-finger state dots, and the current gesture label — useful for tuning the classifier.
 
 **What's uniquely enabled.** The HUD (gesture label + progress bar) is real DOM — styled in CSS, screen-reader accessible — yet it appears composited inside the live animation frame. Without this API you'd need a separate absolutely-positioned overlay that can't be in sync with the canvas render.
 
