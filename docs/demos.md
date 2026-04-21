@@ -108,6 +108,28 @@ npm install
 npm run dev
 ```
 
+### shadow-puppet
+
+**What it is.** Hold a hand gesture up to your webcam and a cute cartoon animal spawns and animates autonomously across the screen. Eight gestures are mapped to eight animals: all-fingers-spread → Spider, four-fingers-no-thumb → Dragon, peace sign → Rabbit, rock-on (index + pinky) → Snake, point (index only) → Wolf, thumbs-up → Owl, both-hands-spread → Bird, both-hands-peace → Butterfly. Hold a gesture for 500 ms to trigger a spawn; a confidence bar in the HUD fills as you hold. Multiple animals can be on-screen at once.
+
+**What it shows.**
+- `CanvasRenderingContext2D.drawElementImage` for a live HUD overlay (gesture name + confidence bar + 8-gesture cheat sheet) on a separate `layoutsubtree` canvas layer.
+- Three-canvas stacking: a WebGPU fragment-only particle background (bottom), a procedural 2D canvas for animals (middle), and an HTML-in-Canvas HUD (top) — all composited by the browser, no manual blending.
+- Procedural Canvas 2D animation — all animal motion computed from elapsed time in `update(dt)`, no CSS `@keyframes` (which crash under continuous rAF per the debugging journal).
+- MediaPipe HandLandmarker two-pass gesture classifier: each hand classified independently, then combined for two-hand gestures (Bird, Butterfly).
+
+**What's uniquely enabled.** The HUD (gesture label + progress bar) is real DOM — styled in CSS, screen-reader accessible — yet it appears composited inside the live animation frame. Without this API you'd need a separate absolutely-positioned overlay that can't be in sync with the canvas render.
+
+Source: [`Examples/shadow-puppet/`](../Examples/shadow-puppet/)
+
+Build with:
+
+```bash
+cd Examples/shadow-puppet
+npm install
+npm run dev
+```
+
 ---
 
 ## Which demo should I start with?
@@ -122,3 +144,4 @@ npm run dev
 | See WebGPU at full tilt | webgpu-jelly-slider |
 | See liquid-glass / blur compositing | liquid-glass-nav |
 | See WebGPU + live camera + HTML HUD | crystal-hands |
+| See multi-layer canvas + gesture classification + HTML HUD | shadow-puppet |

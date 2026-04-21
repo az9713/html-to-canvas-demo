@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shadow Puppet — HTML-in-Canvas</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a14; }
+
+    /* Webcam: hidden source for MediaPipe only */
+    #webcam {
+      position: fixed;
+      width: 1px; height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Layer 1: WebGPU atmospheric background */
+    #bg-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Layer 2: 2D canvas for cartoon animals */
+    #animal-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    /* Layer 3: HTML-in-Canvas HUD overlay */
+    #hud-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    /* HUD div — direct child of #hud-canvas with layoutsubtree.
+       Must be position: static (enforced by HTML-in-Canvas API).
+       Fixed width to stay within the 256×110 size budget. */
+    #hud {
+      width: 256px;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 11px;
+      color: rgba(220, 210, 255, 0.92);
+      line-height: 1.5;
+      padding: 10px 12px 8px;
+      background: rgba(8, 6, 24, 0.75);
+      border-right: 1px solid rgba(160, 130, 255, 0.3);
+      border-bottom: 1px solid rgba(160, 130, 255, 0.3);
+      border-bottom-right-radius: 10px;
+    }
+
+    #hud-gesture-name {
+      font-size: 14px;
+      font-weight: bold;
+      color: rgba(200, 180, 255, 1.0);
+      margin-bottom: 5px;
+      letter-spacing: 0.5px;
+    }
+
+    #hud-confidence-bar {
+      height: 5px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+
+    #hud-confidence-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #7040ff, #a070ff);
+      border-radius: 3px;
+      width: 0%;
+      /* No CSS transitions — updated procedurally each frame */
+    }
+
+    #hud-guide {
+      font-size: 9.5px;
+      opacity: 0.65;
+      line-height: 1.6;
+    }
+
+    /* Flag warning overlay */
+    #flag-warning {
+      display: none;
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(80, 10, 10, 0.95);
+      color: #fff;
+      padding: 24px 32px;
+      border-radius: 12px;
+      font-family: system-ui, sans-serif;
+      text-align: center;
+      max-width: 420px;
+      z-index: 999;
+      line-height: 1.7;
+    }
+
+    #flag-warning code {
+      background: rgba(255,255,255,0.15);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Hidden webcam: MediaPipe source only, never rendered -->
+  <video id="webcam" autoplay muted playsinline></video>
+
+  <!-- Layer 1: WebGPU atmospheric particle background -->
+  <canvas id="bg-canvas"></canvas>
+
+  <!-- Layer 2: Cartoon animals (2D canvas, no layoutsubtree needed) -->
+  <canvas id="animal-canvas"></canvas>
+
+  <!-- Layer 3: HUD with HTML-in-Canvas child element -->
+  <canvas id="hud-canvas" layoutsubtree>
+    <div id="hud">
+      <div id="hud-gesture-name">No gesture detected</div>
+      <div id="hud-confidence-bar">
+        <div id="hud-confidence-fill"></div>
+      </div>
+      <div id="hud-guide">
+        🤚🤚 Both spread → Bird<br>
+        ✌️✌️ Both peace → Butterfly<br>
+        🖐️ All 5 fingers → Spider<br>
+        🖖 4 fingers, no thumb → Dragon<br>
+        ✌️ Peace → Rabbit<br>
+        ☝️ Point → Wolf<br>
+        👍 Thumbs up → Owl<br>
+        🤘 Rock-on → Snake
+      </div>
+    </div>
+  </canvas>
+
+  <div id="flag-warning">
+    <strong>HTML-in-Canvas flag required</strong><br><br>
+    Open <code>chrome://flags/#canvas-draw-element</code><br>
+    Set to <em>Enabled</em> and relaunch Chrome Canary.<br><br>
+    <small>The demo will still run without it — HUD overlay will be invisible.</small>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

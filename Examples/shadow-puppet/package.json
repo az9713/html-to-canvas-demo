@@ -1,0 +1,22 @@
+{
+  "name": "shadow-puppet",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "npm:tsover@^5.9.11",
+    "vite": "^6.1.1",
+    "@webgpu/types": "^0.1.66"
+  },
+  "dependencies": {
+    "typegpu": "^0.10.2",
+    "unplugin-typegpu": "^0.10.1",
+    "@typegpu/noise": "0.10.0",
+    "@mediapipe/tasks-vision": "^0.10.21"
+  }
+}

@@ -44,7 +44,7 @@ If you see `false`, the flag isn't on. Re-check step 3.
 
 ## Demos
 
-The `Examples/` directory ships nine demos in total — five originals from the WICG repo and four new ones added in this fork.
+The `Examples/` directory ships ten demos in total — five originals from the WICG repo and five new ones added in this fork.
 
 ### Starter demos (from upstream)
 
@@ -65,6 +65,7 @@ The `Examples/` directory ships nine demos in total — five originals from the 
 | Trading terminal | Bloomberg-style dense HTML table with CRT/scanline/vignette treatment. Sortable, focusable, screen-reader accessible. | [`Examples/trading-terminal.html`](Examples/trading-terminal.html) |
 | Liquid glass nav | Apple-style frosted-glass navigation bar with chromatic dispersion refracting a scrollable article below. Menu items are real `<a>` elements. | [`Examples/liquid-glass-nav/`](Examples/liquid-glass-nav/) |
 | Crystal hands | Real-time webcam hand tracking (MediaPipe) + WebGPU SDF ray-march shader rendering hands as translucent crystal with caustics. Live HTML stats HUD composited by the GPU via `copyElementImageToTexture`. | [`Examples/crystal-hands/`](Examples/crystal-hands/) |
+| Shadow puppet | Hold a hand gesture up to your webcam — 8 gestures map to cute cartoon animals (bird, rabbit, butterfly, wolf, dragon, snake, owl, spider) that animate autonomously across the screen. Three-canvas stack: WebGPU particle background, procedural 2D canvas animals, HTML-in-Canvas HUD via `drawElementImage`. | [`Examples/shadow-puppet/`](Examples/shadow-puppet/) |
 
 ---
 
@@ -88,14 +89,19 @@ Then open the demo index:
 
 …which links to every demo with a live flag-status check at the top.
 
-### 2. (For the 4th demo only) start Vite
+### 2. (For bundled demos) start Vite
 
-`liquid-glass-nav` is a bundled TypeScript project. In a second terminal:
+Three demos are bundled TypeScript projects that need their own dev server. In a second terminal:
 
 ```bash
-cd Examples/liquid-glass-nav
-npm install
-npm run dev
+# liquid-glass-nav
+cd Examples/liquid-glass-nav && npm install && npm run dev
+
+# crystal-hands
+cd Examples/crystal-hands && npm install && npm run dev
+
+# shadow-puppet
+cd Examples/shadow-puppet && npm install && npm run dev
 ```
 
 Vite prints a `http://localhost:5173/` URL — open it in Canary.
@@ -122,7 +128,7 @@ Entry point: [`docs/index.md`](docs/index.md).
 
 ## What this fork adds on top of upstream
 
-- `Examples/holographic-card.html`, `Examples/infinite-canvas.html`, `Examples/trading-terminal.html`, `Examples/liquid-glass-nav/`, `Examples/crystal-hands/` — five new demos.
+- `Examples/holographic-card.html`, `Examples/infinite-canvas.html`, `Examples/trading-terminal.html`, `Examples/liquid-glass-nav/`, `Examples/crystal-hands/`, `Examples/shadow-puppet/` — six new demos.
 - `Examples/index.html` — a cards landing page with live flag-status detection.
 - `docs/` — 25 markdown files, all cross-linked, covering concepts, guides, reference, architecture, and troubleshooting.
 - `docs/debugging-journal.md` — a field report of every issue encountered while writing the demos (GPU hangs on tight `texElementImage2D` loops, the undocumented `position: static` enforcement on canvas children, containing-block side effects from near-identity sync transforms, etc.).
