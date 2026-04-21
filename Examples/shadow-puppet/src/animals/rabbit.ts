@@ -1,92 +1,45 @@
 import type { Animal, AnimalInstance } from './types';
+import { getSvgImage } from './svg-cache';
+import { RABBIT_SVG } from './sprites/rabbit';
 
 class RabbitInstance implements AnimalInstance {
   private elapsed = 0;
   private readonly duration = 4500;
+  public x = 0;
+  public y = 0;
 
-  constructor(private canvasW: number, private canvasH: number, private scale: number) {}
+  constructor(_canvasW: number, private canvasH: number, private scale: number) {}
 
   update(dt: number): boolean {
     this.elapsed += dt;
+    // x and y are set externally by AnimalStage physics.
     return this.elapsed < this.duration;
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
+    const img = getSvgImage(RABBIT_SVG);
+    if (!img) return; // still loading
+
     const s = this.scale;
-    const t = this.elapsed / this.duration;
-    const x = -60 * s + (this.canvasW + 120 * s) * t;
-    const groundY = this.canvasH * 0.75;
     const hopCount = 5;
-    const withinHop = (t * hopCount) % 1;
+    // Use elapsed to drive hop phase independently of horizontal position
+    const hopT = (this.elapsed / this.duration) * hopCount;
+    const withinHop = hopT % 1;
     const hopPhase = Math.sin(Math.PI * withinHop);
-    const y = groundY - this.canvasH * 0.15 * hopPhase;
+
+    // y is the physics base; hop lifts the rabbit upward as a delta
+    const drawY = this.y - this.canvasH * 0.15 * hopPhase;
+
+    const w = 100 * s;
+    const h = 100 * s;
+
+    // Squish on ground: compress vertically when hopPhase is low
+    const squishY = 0.85 + 0.15 * hopPhase;
 
     ctx.save();
-    ctx.translate(x, y);
-    ctx.shadowBlur = 12 * s;
-    ctx.shadowColor = '#a080ff';
-
-    // Body (squish on ground)
-    ctx.fillStyle = '#d0c0e8';
-    ctx.beginPath();
-    ctx.ellipse(0, -18 * s, 14 * s, 16 * (0.85 + 0.15 * hopPhase) * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Left ear
-    ctx.save();
-    ctx.translate(-5 * s, -33 * s);
-    ctx.rotate(-0.15);
-    ctx.fillStyle = '#d0c0e8';
-    ctx.beginPath();
-    ctx.ellipse(0, -12 * s, 4 * s, 14 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#f0a0b0';
-    ctx.beginPath();
-    ctx.ellipse(0, -12 * s, 2 * s, 10 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    // Right ear
-    ctx.save();
-    ctx.translate(5 * s, -33 * s);
-    ctx.rotate(0.1);
-    ctx.fillStyle = '#d0c0e8';
-    ctx.beginPath();
-    ctx.ellipse(0, -12 * s, 4 * s, 14 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#f0a0b0';
-    ctx.beginPath();
-    ctx.ellipse(0, -12 * s, 2 * s, 10 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    // Legs
-    ctx.fillStyle = '#d0c0e8';
-    ctx.beginPath();
-    ctx.arc(-6 * s, -4 * s + hopPhase * 8 * s, 5 * s, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(6 * s, -4 * s + hopPhase * 8 * s, 5 * s, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Eye
-    ctx.fillStyle = '#1a0a20';
-    ctx.beginPath();
-    ctx.arc(8 * s, -22 * s, 2.5 * s, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Nose
-    ctx.fillStyle = '#f090a0';
-    ctx.beginPath();
-    ctx.arc(12 * s, -19 * s, 1.5 * s, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Tail
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.beginPath();
-    ctx.arc(-14 * s, -16 * s, 5 * s, 0, Math.PI * 2);
-    ctx.fill();
-
+    ctx.translate(this.x, drawY);
+    ctx.scale(1, squishY);
+    ctx.drawImage(img, -w / 2, -h, w, h);
     ctx.restore();
   }
 }

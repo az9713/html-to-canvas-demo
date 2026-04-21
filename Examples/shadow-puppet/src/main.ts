@@ -1,6 +1,7 @@
 import { HandTracker } from './hand-tracker';
 import { BgRenderer } from './bg-renderer';
 import { AnimalStage } from './animal-stage';
+import { HandDebugPanel } from './hand-debug';
 
 // ── Flag check ──
 if (!('onpaint' in HTMLCanvasElement.prototype)) {
@@ -13,6 +14,8 @@ const bgCanvas = document.getElementById('bg-canvas') as HTMLCanvasElement;
 const animalCanvas = document.getElementById('animal-canvas') as HTMLCanvasElement;
 const hudCanvas = document.getElementById('hud-canvas') as HTMLCanvasElement;
 const hudDiv = document.getElementById('hud')!;
+const handDebugCanvas = document.getElementById('hand-debug') as HTMLCanvasElement;
+const handPanel = new HandDebugPanel(handDebugCanvas);
 
 // ── HUD elements ──
 const hudGestureName = document.getElementById('hud-gesture-name')!;
@@ -51,6 +54,7 @@ await bgRenderer.init();
 
 // ── Animal stage ──
 const stage = new AnimalStage(animalCanvas);
+await stage.init();
 
 // ── Hand tracker ──
 const tracker = new HandTracker();
@@ -73,21 +77,16 @@ const resizeObserver = new ResizeObserver(() => {
   sizeCanvas(animalCanvas);
   sizeCanvas(hudCanvas);
   bgRenderer.onResize(bgCanvas.width, bgCanvas.height);
+  handPanel.resize();
 });
 resizeObserver.observe(document.body);
 
 // ── Gesture hold logic ──
 let lastGesture = '—';
 let gestureHoldStart: number | null = null;
-let spawnLockGesture: string | null = null;
 const HOLD_MS = 500;
 
 function checkGestureHold(g: string): number {
-  // Reset lock when gesture changes
-  if (g !== spawnLockGesture) spawnLockGesture = null;
-  // Suppress re-spawn while same gesture held
-  if (spawnLockGesture !== null) return 1.0;
-
   if (g === '—') {
     gestureHoldStart = null;
     lastGesture = '—';
@@ -104,8 +103,9 @@ function checkGestureHold(g: string): number {
     const progress = Math.min(1, (Date.now() - gestureHoldStart) / HOLD_MS);
     if (progress >= 1) {
       stage.spawn(g);
-      spawnLockGesture = g;
+      // Reset so user must re-hold to spawn another instance
       gestureHoldStart = null;
+      lastGesture = '—';
     }
     return progress;
   }
@@ -131,6 +131,11 @@ function frame(ts: number): void {
 
   // Hand detection
   if (webcamReady) tracker.detect(video);
+
+  // Update hand debug panel every frame when hands are present
+  if (webcamReady && tracker.lastLandmarks.length > 0) {
+    handPanel.draw(video, tracker.lastLandmarks, tracker.fingerStates, tracker.gesture);
+  }
 
   // Gesture hold → possible animal spawn
   const confidence = checkGestureHold(tracker.gesture);

@@ -1,4 +1,7 @@
 export interface AnimalInstance {
+  /** Current physics-driven position (overridden by AnimalStage each frame). */
+  x: number;
+  y: number;
   /** Advance state by dt milliseconds. Returns false when the animal is done (off-screen). */
   update(dt: number): boolean;
   /** Draw onto a 2D canvas context. Context transform is identity (canvas pixels). */
