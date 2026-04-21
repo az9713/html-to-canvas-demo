@@ -8,8 +8,8 @@ const BgUniforms = d.struct({
   _pad: d.f32,
 });
 
-// Primary fog: rightward drift, medium speed
-const fogA = (uv: d.v2f, t: number) => {
+// fBm fog — single function, 4 octaves, builds on verified-working pattern
+const fbmFog = (uv: d.v2f, t: number) => {
   'use gpu';
   const o1 = perlin2d.sample(uv.mul(2.0).add(d.vec2f(t * 0.12, 0.0)));
   const o2 = perlin2d.sample(uv.mul(4.5).add(d.vec2f(0.0, t * 0.17)));
@@ -18,13 +18,14 @@ const fogA = (uv: d.v2f, t: number) => {
   return o1 * 1.0 + o2 * 0.5 + o3 * 0.25 + o4 * 0.125;
 };
 
-// Secondary fog: counter-drift, different UV offset for color variation
-const fogB = (uv: d.v2f, t: number) => {
+// Sharp-core glow blob (same pattern as original, verified working)
+const orbGlow = (uv: d.v2f, ox: number, oy: number, r: number) => {
   'use gpu';
-  const o1 = perlin2d.sample(uv.mul(2.8).add(d.vec2f(t * -0.09, t * 0.07)));
-  const o2 = perlin2d.sample(uv.mul(6.0).add(d.vec2f(t * 0.15, 0.0)));
-  const o3 = perlin2d.sample(uv.mul(12.0).add(d.vec2f(0.0, t * -0.14)));
-  return (o1 * 1.0 + o2 * 0.5 + o3 * 0.25) * 0.571;
+  const diff = uv.sub(d.vec2f(ox, oy));
+  const d2 = std.dot(diff, diff);
+  const r2 = r * r;
+  const g = r2 / (d2 + r2);
+  return g * g;
 };
 
 function makeBgFragment(uniformsU: TgpuUniform<typeof BgUniforms>) {
@@ -36,45 +37,62 @@ function makeBgFragment(uniformsU: TgpuUniform<typeof BgUniforms>) {
     const t = uniformsU.$.time;
     const uv = input.uv;
 
-    // Both fog layers normalised to [0, 1]
-    const fA = fogA(uv, t) * 0.53 + 0.5;
-    const fB = fogB(uv, t) * 0.53 + 0.5;
+    // ── fBm fog in [0,1] ──
+    const fog = fbmFog(uv, t) * 0.53 + 0.5;
 
-    // Slow colour cycling — completes a full swing every ~20 s
-    const pulse = 0.5 + 0.5 * std.sin(t * 0.31);
-    const pulse2 = 0.5 + 0.5 * std.cos(t * 0.21);
+    // ── Animated orbs (original pattern, vivid palette, faster speeds) ──
+    const p1x = 0.20 + 0.15 * std.sin(t * 0.55);
+    const p1y = 0.30 + 0.15 * std.cos(t * 0.43);
+    const p2x = 0.80 + 0.12 * std.cos(t * 0.48);
+    const p2y = 0.25 + 0.12 * std.sin(t * 0.65);
+    const p3x = 0.50 + 0.18 * std.sin(t * 0.34 + 1.0);
+    const p3y = 0.60 + 0.15 * std.cos(t * 0.50 + 0.5);
+    const p4x = 0.15 + 0.12 * std.cos(t * 0.62);
+    const p4y = 0.75 + 0.10 * std.sin(t * 0.38);
+    const p5x = 0.85 + 0.10 * std.sin(t * 0.54);
+    const p5y = 0.70 + 0.12 * std.cos(t * 0.44 + 1.2);
+    const p6x = 0.35 + 0.14 * std.cos(t * 0.40 + 2.0);
+    const p6y = 0.45 + 0.18 * std.sin(t * 0.52);
 
-    // Vivid colour palette: purple, cyan, magenta
-    const purple  = d.vec3f(0.55, 0.05, 1.00);
-    const cyan    = d.vec3f(0.00, 0.90, 1.00);
-    const magenta = d.vec3f(1.00, 0.08, 0.75);
-    const darkBg  = d.vec3f(0.01, 0.005, 0.03);
+    // Smaller radii → tighter, less blurry
+    const g1 = orbGlow(uv, p1x, p1y, 0.14);
+    const g2 = orbGlow(uv, p2x, p2y, 0.12);
+    const g3 = orbGlow(uv, p3x, p3y, 0.16);
+    const g4 = orbGlow(uv, p4x, p4y, 0.11);
+    const g5 = orbGlow(uv, p5x, p5y, 0.12);
+    const g6 = orbGlow(uv, p6x, p6y, 0.10);
 
-    // Build colour from fog layers + palette
-    let color = darkBg;
-    color = color.add(purple.mul(fA * 0.80));
-    color = color.add(cyan.mul(fB * 0.60 * (0.65 + pulse * 0.35)));
-    // Hot spots where both fog layers peak → magenta flash
-    const hotspot = std.clamp(fA * fB - 0.10, 0.0, 1.0);
-    color = color.add(magenta.mul(hotspot * (0.55 + pulse2 * 0.45)));
+    // Vivid palette: magenta, cyan, gold, violet, teal, orange
+    let color = d.vec3f(0.0, 0.0, 0.0);
+    color = color.add(d.vec3f(1.00, 0.05, 0.80).mul(g1 * 1.4)); // magenta
+    color = color.add(d.vec3f(0.00, 0.90, 1.00).mul(g2 * 1.2)); // cyan
+    color = color.add(d.vec3f(1.00, 0.75, 0.00).mul(g3 * 1.0)); // gold
+    color = color.add(d.vec3f(0.60, 0.05, 1.00).mul(g4 * 1.3)); // violet
+    color = color.add(d.vec3f(0.00, 0.85, 0.65).mul(g5 * 1.1)); // teal
+    color = color.add(d.vec3f(1.00, 0.35, 0.00).mul(g6 * 0.9)); // orange
 
-    // Crepuscular spotlight cone from bottom centre — wider & brighter
-    const axDist = std.abs(uv.x - 0.5) * (1.6 - uv.y * 0.5);
-    const spotRaw = std.clamp(1.0 - axDist * 2.4, 0.0, 1.0);
-    const spot = spotRaw * spotRaw * spotRaw;
+    // ── Blend fog colour into the orbs ──
+    // Fog tints the space between orbs with a slow purple/indigo wash
+    const pulse = 0.5 + 0.5 * std.sin(t * 0.28);
+    const fogColor = d.vec3f(0.35 + pulse * 0.20, 0.05, 0.70 - pulse * 0.20);
+    color = color.add(fogColor.mul(fog * 0.35));
 
-    // Radial vignette: bright centre, dark edges
-    const vigLen = std.length(uv.sub(d.vec2f(0.5, 0.5)));
-    const vignette = std.clamp(1.0 - vigLen * 0.65, 0.08, 1.0);
+    // ── Dark navy base ──
+    color = color.add(d.vec3f(0.02, 0.01, 0.05));
 
-    // Apply luminance shaping
-    color = color.mul(vignette * (0.25 + spot * 1.1));
+    // ── Spotlight cone from bottom centre ──
+    const axDist = std.abs(uv.x - 0.5) * (1.8 - uv.y * 0.5);
+    const spotRaw = std.clamp(1.0 - axDist * 2.6, 0.0, 1.0);
+    const spot = spotRaw * spotRaw;
+    // Spotlight brightens centre; warm tint
+    color = color.add(d.vec3f(0.15, 0.10, 0.25).mul(spot * 0.6));
 
-    // Warm gold tint inside the spotlight cone
-    color = color.add(d.vec3f(0.22, 0.14, 0.00).mul(spot * 0.9));
-
-    // Reinhard tone-map to prevent blowout
-    color = color.mul(1.0 / (std.length(color) * 0.32 + 1.0));
+    // ── Tone-map: just clamp, no Reinhard darkening ──
+    color = d.vec3f(
+      std.clamp(color.x, 0.0, 1.0),
+      std.clamp(color.y, 0.0, 1.0),
+      std.clamp(color.z, 0.0, 1.0),
+    );
 
     return d.vec4f(color, 1.0);
   });
@@ -132,7 +150,7 @@ export class BgRenderer {
         view: this.context,
         loadOp: 'clear',
         storeOp: 'store',
-        clearValue: { r: 0.01, g: 0.005, b: 0.03, a: 1 },
+        clearValue: { r: 0.02, g: 0.01, b: 0.05, a: 1 },
       })
       .draw(3);
   }

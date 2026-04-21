@@ -67,6 +67,8 @@ The `Examples/` directory ships ten demos in total — five originals from the W
 | Crystal hands | Real-time webcam hand tracking (MediaPipe) + WebGPU SDF ray-march shader rendering hands as translucent crystal with caustics. Live HTML stats HUD composited by the GPU via `copyElementImageToTexture`. | [`Examples/crystal-hands/`](Examples/crystal-hands/) |
 | Shadow puppet | Hold a hand gesture up to your webcam — 8 gestures map to cute cartoon animals (bird, rabbit, butterfly, wolf, dragon, snake, owl, spider) that animate autonomously across the screen. Three-canvas stack: WebGPU particle background, procedural 2D canvas animals, HTML-in-Canvas HUD via `drawElementImage`. | [`Examples/shadow-puppet/`](Examples/shadow-puppet/) |
 
+https://PLACEHOLDER_SHADOW_PUPPET_VIDEO_URL
+
 ---
 
 ## Run the demos
