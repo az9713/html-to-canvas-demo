@@ -112,8 +112,10 @@ npm run dev
 
 **What it is.** Hold a hand gesture up to your webcam and a cute cartoon animal spawns and wanders autonomously across the screen. Eight gestures map to eight animals: all-fingers-spread → Spider, four-fingers-no-thumb → Dragon, peace sign → Rabbit, rock-on (index + pinky) → Snake, point (index only) → Wolf, thumbs-up → Owl, both-hands-spread → Bird, both-hands-peace → Butterfly. Hold a gesture for 500 ms to trigger a spawn; a confidence bar in the HUD fills as you hold. Up to 8 animals can coexist on screen simultaneously, each wandering with soft collision avoidance.
 
+**How HTML-in-Canvas is used.** The top layer is a `<canvas layoutsubtree>` whose only child is a real `<div id="hud">` containing three styled HTML elements: a gesture-name paragraph, a CSS progress bar (`<div id="hud-confidence-fill">` with `width` set in JS), and a cheat-sheet list. Every 10 frames `main.ts` calls `ctx.drawElementImage(hudDiv, 0, 0, 256, 180)` inside the canvas's `onpaint` handler — the browser renders the live DOM subtree (text, layout, CSS transitions) directly into the 2D context as a pixel-perfect image, then composites that canvas over the animal and background layers. The HUD has no position tricks, no `z-index` hacks, no duplicate shadow DOM — it is just HTML, drawn into canvas.
+
 **What it shows.**
-- `CanvasRenderingContext2D.drawElementImage` for a live HUD overlay (gesture name + confidence bar + 8-gesture cheat sheet) on a separate `layoutsubtree` canvas layer.
+- `CanvasRenderingContext2D.drawElementImage` rendering a live `<div>` (with CSS-styled children) into a `layoutsubtree` canvas on every update tick.
 - Three-canvas stacking: a WebGPU animated background (bottom), a Canvas 2D layer for animals and particles (middle), and an HTML-in-Canvas HUD (top) — all composited by the browser, no manual blending.
 - SVG-in-Canvas animal rendering: each animal's geometry is defined as an inline SVG string constant (`src/animals/sprites/*.ts`), pre-loaded to an `HTMLImageElement` via `data:image/svg+xml` URL (`src/animals/svg-cache.ts`), and drawn with `ctx.drawImage()`. This gives crisp, scalable visuals at any DPR with no raster assets.
 - Physics-based autonomous motion: each animal instance is wrapped in a `PhysicsAnimal` that applies wander steering (slowly rotating `wanderAngle`), soft boundary forces, and pairwise separation forces (O(N²) over ≤ 8 animals) to prevent clustering.
@@ -123,7 +125,7 @@ npm run dev
 - MediaPipe HandLandmarker two-pass classifier: each hand classified independently, then combined for two-hand gestures (Bird, Butterfly).
 - Hand debug panel: a fixed bottom-right canvas (`src/hand-debug.ts`) draws the mirrored webcam feed with MediaPipe skeleton overlay, per-finger state dots, and the current gesture label — useful for tuning the classifier.
 
-**What's uniquely enabled.** The HUD (gesture label + progress bar) is real DOM — styled in CSS, screen-reader accessible — yet it appears composited inside the live animation frame. Without this API you'd need a separate absolutely-positioned overlay that can't be in sync with the canvas render.
+**What's uniquely enabled.** Without HTML-in-Canvas, a gesture HUD over a multi-layer canvas stack requires an absolutely-positioned `<div>` floating above the canvases in normal DOM flow. That div can't be part of the canvas render pipeline — it's always a separate compositing layer, it clips differently at the window edges, and it prevents pointer events from reaching the canvas. With `drawElementImage`, the HUD is drawn *into* the canvas pixel grid at the exact coordinates you choose, in the exact z-order you choose, with zero extra DOM layers. The confidence bar's CSS `width` transition and the gesture text's font rendering are handled by the browser's layout engine; the canvas just stamps the result wherever it needs to go.
 
 Source: [`Examples/shadow-puppet/`](../Examples/shadow-puppet/)
 
